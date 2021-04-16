@@ -3,20 +3,12 @@ import numpy as np
 
 
 class Tracker:
-    def __init__(self, adaptive, cuda):
+    def __init__(self, adaptive, cuda, lower_threshold, upper_threshold):
         self.cuda = cuda
         if not cuda:
             # DIS method
             self.__tracking_inst = cv2.DISOpticalFlow_create(
                 cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
-            # self.__tracking_inst.setFinestScale(0)  # 2 as default
-            # self.__tracking_inst.setPatchStride(1)  # 4 as default
-            # self.__tracking_inst.setGradientDescentIterations(
-            #     60)  # 12 as default
-            # self.__tracking_inst.setVariationalRefinementIterations(
-            #     20)  # 0 as default
-            # self.__tracking_inst.setVariationalRefinementAlpha(1.0)
-            # self.__tracking_inst.setPatchSize(15)  # 8 as default
 
             self.__coarse_tracking_inst = cv2.DISOpticalFlow_create(
                 cv2.DISOpticalFlow_PRESET_ULTRAFAST)
@@ -27,17 +19,16 @@ class Tracker:
         self.__fine_base_frame_queue = []
         self.__coarse_base_frame_queue = []
         self.__fine_flow_queue = []
-        self.__coarse_flow_queue = []
         self.__prev_fine_flow = None
         self.__prev_coarse_flow = None
         self.__adaptive = adaptive
+        self.__lower_threshold = lower_threshold  # error lower than threshold will close the loop
+        self.__upper_threshold = upper_threshold  # error greater than threshold will add new reference frame
 
     def track(self, frame):
         downScaled_size = (frame.shape[1] // 20, frame.shape[0] // 20)
         if self.cuda:
-            cuMat = cv2.cuda_GpuMat()
-            cuMat.upload(frame)
-            frame = cuMat
+            frame = cv2.cuda_GpuMat(frame)
         if self.__adaptive:
             if not self.__fine_base_frame_queue:
                 self.__fine_base_frame_queue.append(frame)
@@ -61,9 +52,6 @@ class Tracker:
                     self.__fine_flow_queue.append(
                         cv2.cuda_GpuMat(frame.size(), cv2.CV_32FC2,
                                         (0.0, 0.0)))
-                    self.__coarse_flow_queue.append(
-                        cv2.cuda_GpuMat(downScaled_size[1], downScaled_size[0],
-                                        cv2.CV_32FC2, (0.0, 0.0)))
                     self.__prev_fine_flow = cv2.cuda_GpuMat(
                         frame.size(), cv2.CV_32FC2, (0.0, 0.0))
                     self.__prev_coarse_flow = cv2.cuda_GpuMat(
@@ -76,8 +64,6 @@ class Tracker:
                                    interpolation=cv2.INTER_CUBIC))
                     self.__fine_flow_queue.append(
                         np.zeros((frame.shape[0], frame.shape[1], 2)))
-                    self.__coarse_flow_queue.append(
-                        np.zeros((downScaled_size[1], downScaled_size[0], 2)))
                     self.__prev_fine_flow = np.zeros(
                         (frame.shape[0], frame.shape[1], 2))
                     self.__prev_coarse_flow = np.zeros(
@@ -90,11 +76,10 @@ class Tracker:
                 else:
                     downScaled_frame = cv2.resize(
                         frame, downScaled_size, interpolation=cv2.INTER_CUBIC)
+                self.__checkLoopClosure(downScaled_frame)
                 self.__prev_coarse_flow = self.__coarse_tracking_inst.calc(
                     self.__coarse_base_frame_queue[-1], downScaled_frame,
                     self.__prev_coarse_flow)
-                # if self.__checkLoopClosure(downScaled_frame) > 0:
-                #     pass
                 self.__prev_fine_flow = self.__tracking_inst.calc(
                     self.__fine_base_frame_queue[-1], frame,
                     self.__prev_fine_flow)
@@ -107,20 +92,12 @@ class Tracker:
                 error = self.__getForwardBackwardError(
                     self.__coarse_base_frame_queue[-1], downScaled_frame,
                     self.__prev_coarse_flow)
-                print("Error, ", error)
-                if error > 12.0:
+                # print("Error, ", error)
+                if error > self.__upper_threshold:
                     self.__fine_base_frame_queue.append(frame)
                     self.__coarse_base_frame_queue.append(downScaled_frame)
                     self.__fine_flow_queue.append(final_flow)
                     self.__prev_fine_flow = None
-                    if self.cuda:
-                        self.__coarse_flow_queue.append(
-                            cv2.cuda.add(self.__coarse_flow_queue[-1],
-                                         self.__prev_coarse_flow))
-                    else:
-                        self.__coarse_flow_queue.append(
-                            self.__coarse_flow_queue[-1] +
-                            self.__prev_coarse_flow)
                     self.__prev_coarse_flow = None
                 return final_flow
         else:
@@ -153,18 +130,17 @@ class Tracker:
                           borderMode=cv2.BORDER_REPLICATE)
             rev = np.abs(z.astype('float32') - I0.astype('float32'))
             rev = rev.mean()
-        # print("Error: ", rev)
         return rev
 
     def __checkLoopClosure(
         self, downScaled_frame
-    ):  # return id of the closest frame forming the loop, -1 if no loop found
-        total_flow = self.__prev_coarse_flow + self.__coarse_flow_queue[-1]
-        for i in range(len(self.__coarse_base_frame_queue) - 1):
+    ):  # update (prune) the frame queue with loop closure detection
+        for i in range(len(self.__coarse_base_frame_queue) - 2, -1, -1):
+            f = self.__coarse_tracking_inst.calc(
+                self.__coarse_base_frame_queue[i], downScaled_frame, None)
             error = self.__getForwardBackwardError(
-                self.__coarse_base_frame_queue[i], downScaled_frame,
-                total_flow - self.__coarse_flow_queue[i])
-            if error[2:-2, 2:-2].max() < 10:
+                self.__coarse_base_frame_queue[i], downScaled_frame, f)
+            if error < self.__lower_threshold:
                 print("loop closed at frame ", str(i))
                 self.__fine_base_frame_queue = self.__fine_base_frame_queue[:
                                                                             i +
@@ -173,21 +149,14 @@ class Tracker:
                                                                                 i
                                                                                 +
                                                                                 1]
-                self.__prev_fine_flow = self.__prev_fine_flow + self.__fine_flow_queue[
-                    -1] - self.__fine_flow_queue[i]
                 self.__fine_flow_queue = self.__fine_flow_queue[:i + 1]
-                self.__prev_coarse_flow = self.__prev_coarse_flow + self.__coarse_flow_queue[
-                    -1] - self.__coarse_flow_queue[i]
-                self.__coarse_flow_queue = self.__coarse_flow_queue[:i + 1]
-
-                return i
-        return -1
+                return True
+        return False
 
     def reset(self):
         self.__fine_base_frame_queue = []
         self.__coarse_base_frame_queue = []
         self.__fine_flow_queue = []
-        self.__coarse_flow_queue = []
         self.__prev_fine_flow = None
         self.__prev_coarse_flow = None
 
