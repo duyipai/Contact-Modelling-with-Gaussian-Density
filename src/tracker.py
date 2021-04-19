@@ -3,7 +3,11 @@ import numpy as np
 
 
 class Tracker:
-    def __init__(self, adaptive, cuda, lower_threshold, upper_threshold):
+    def __init__(self,
+                 adaptive,
+                 cuda,
+                 lower_threshold=12.0,
+                 upper_threshold=18.0):
         self.cuda = cuda
         if not cuda:
             # DIS method

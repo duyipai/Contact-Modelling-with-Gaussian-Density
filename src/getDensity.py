@@ -32,18 +32,18 @@ def twoClustering(density, threshold):
 
 
 def getFilteredDensity(flow, use_cuda):
-    sigma = 2.0
-    r_max = 6.0
+    sigma = 3.0
+    r_max = 9.0
     # tmp = time.time()
     if use_cuda:
-        density = getDensityCuda(flow)
+        density = getDensityCuda(flow, sigma, r_max)
     else:
         density = getDensity(flow, sigma, r_max)
     # print("Density frequency: ", float(1.0 / (time.time() - tmp)))
     # tmp = time.time()
     density = correctInvalidArea(density)
     # print("Correct frequency: ", float(1.0 / (time.time() - tmp)))
-    return density[30:-30, 30:-30]
+    return density[15:-15, 15:-15]
 
 
 def getDensity(flow, sigma, r_max):
@@ -126,9 +126,9 @@ func_string = r"""
 funcupy = cp.RawModule(code=func_string).get_function("density")
 
 
-def getDensityCuda(flow):
-    twoSigma2 = cp.float32(9.0)  # 2.0^2*2=8.0
-    r_max = cp.float32(7.0)
+def getDensityCuda(flow, sigma, r_max):
+    twoSigma2 = cp.float32(2.0 * sigma**2)
+    r_max = cp.float32(r_max)
     flowx, flowy = cv2.cuda.split(flow)
     flowx = cp.array(CudaArrayInterface(flowx), dtype=cp.float32, copy=True)
     flowy = cp.array(CudaArrayInterface(flowy), dtype=cp.float32, copy=True)
