@@ -27,12 +27,10 @@ if __name__ == "__main__":
             density = getFilteredDensity(flow, use_cuda=True)
             # print(density.max(), density.min())
             density = (density + 1.0) / 1.0
-            # density_grad = np.gradient(density_grad_mag)
-            # density_grad_mag = np.hypot(density_grad[0], density_grad[1])
-            center_of_mass = ndimage.measurements.center_of_mass(density)
             density = (density * 255.0).astype('uint8')
-            # print(density_grad_mag)
-            # contact_boundary = utils.getContactBoundary(density)
+            threshold, contact_boundary = utils.getContactBoundary(density)
+            density[np.where(density < threshold)] = 0
+            center_of_mass = ndimage.measurements.center_of_mass(density)
             density = cv2.applyColorMap(density, cv2.COLORMAP_HOT)
             cv2.circle(density,
                        (int(center_of_mass[1]), int(center_of_mass[0])), 5,
@@ -41,7 +39,7 @@ if __name__ == "__main__":
                 np.zeros_like(density),
                 flow.download()[15:-15, 15:-15, :])
             cv2.imshow('img', img)
-            # cv2.imshow('boundary', contact_boundary)
+            cv2.imshow('boundary', contact_boundary)
             cv2.imshow('arrows', arrows)
             cv2.imshow('density', density)
         k = cv2.waitKey(1)

@@ -21,7 +21,7 @@ def put_optical_flow_arrows_on_image(image, optical_flow, threshold=4.0):
     norm = np.linalg.norm(scaled_flow[flow_start[:, :, 1], flow_start[:, :,
                                                                       0], :],
                           axis=2)
-    print(norm.max(), norm.min())
+    # print(norm.max(), norm.min())
     norm[norm < threshold] = 0
     # Draw all the nonzero values
     nz = np.nonzero(norm)
@@ -36,32 +36,35 @@ def put_optical_flow_arrows_on_image(image, optical_flow, threshold=4.0):
                         color=(int(color_image[y, x,
                                                0]), int(color_image[y, x, 1]),
                                int(color_image[y, x, 2])),
-                        thickness=2,
-                        tipLength=.2)
+                        thickness=1,
+                        tipLength=.3)
     return image
 
 
 def getContactBoundary(density, kernel=np.ones((5, 5), np.uint8)):
-    contact_area = cv2.threshold(density,
-                                 0,
-                                 255,
-                                 type=cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    threshold, contact_area = cv2.threshold(density,
+                                            0,
+                                            2,
+                                            type=cv2.THRESH_BINARY +
+                                            cv2.THRESH_OTSU)
 
-    if contact_area[0] > 5:
-        contact_area = contact_area[1]
+    if threshold > 5:
         contact_area = cv2.morphologyEx(contact_area,
                                         cv2.MORPH_OPEN,
                                         kernel,
-                                        iterations=5)
+                                        iterations=3)
     else:
-        contact_area = np.zeros_like(contact_area[1])
+        contact_area = np.zeros_like(contact_area)
     contact_boundary = np.gradient(contact_area.astype('float32'))
-    contact_boundary = np.hypot(contact_boundary[0],
-                                contact_boundary[1]).astype('uint8')
+    contact_boundary = np.abs(contact_boundary[0].astype('uint8')) + np.abs(
+        contact_boundary[1].astype('uint8'))
+    _, contact_boundary = cv2.threshold(contact_boundary,
+                                        0,
+                                        255,
+                                        type=cv2.THRESH_BINARY)
     lines = cv2.HoughLines(contact_boundary, 8, np.pi / 20, 30)
     contact_boundary = cv2.cvtColor(contact_boundary, cv2.COLOR_GRAY2BGR)
     if lines is not None and len(lines) > 1:
-        # print(len(lines))
         lines = lines[:2]
         if np.abs(lines[0][0][1] - lines[1][0][1]) < np.pi / 4.0:
             if np.abs(lines[0][0][1] - lines[1][0][1]) < 1e-2:
@@ -90,4 +93,4 @@ def getContactBoundary(density, kernel=np.ones((5, 5), np.uint8)):
                     pt2 = (int(x0 - 1000 * (-b)), int(y0 - 1000 * (a)))
                     cv2.line(contact_boundary, pt1, pt2, (0, 0, 255), 3,
                              cv2.LINE_AA)
-    return contact_boundary
+    return threshold, contact_boundary
