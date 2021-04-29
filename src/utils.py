@@ -62,35 +62,35 @@ def getContactBoundary(density, kernel=np.ones((5, 5), np.uint8)):
                                         0,
                                         255,
                                         type=cv2.THRESH_BINARY)
-    lines = cv2.HoughLines(contact_boundary, 8, np.pi / 20, 30)
+    # lines = cv2.HoughLines(contact_boundary, 8, np.pi / 20, 30) # line detection in boundaries
     contact_boundary = cv2.cvtColor(contact_boundary, cv2.COLOR_GRAY2BGR)
-    if lines is not None and len(lines) > 1:
-        lines = lines[:2]
-        if np.abs(lines[0][0][1] - lines[1][0][1]) < np.pi / 4.0:
-            if np.abs(lines[0][0][1] - lines[1][0][1]) < 1e-2:
-                a = -1
-                b = -1
-            else:
-                Theta = np.array(
-                    [[math.cos(lines[0][0][1]),
-                      math.sin(lines[0][0][1])],
-                     [math.cos(lines[1][0][1]),
-                      math.sin(lines[1][0][1])]])
-                Rho = np.array([[lines[0][0][0]], [lines[1][0][0]]])
-                intersection = np.matmul(np.linalg.inv(Theta), Rho)
-                a = intersection[0].item()
-                b = intersection[1].item()
-            if not (a > 0 and a < density.shape[1] and b > 0
-                    and b < density.shape[0]):
-                for i in range(0, len(lines)):
-                    rho = lines[i][0][0]
-                    theta = lines[i][0][1]
-                    a = math.cos(theta)
-                    b = math.sin(theta)
-                    x0 = a * rho
-                    y0 = b * rho
-                    pt1 = (int(x0 + 1000 * (-b)), int(y0 + 1000 * (a)))
-                    pt2 = (int(x0 - 1000 * (-b)), int(y0 - 1000 * (a)))
-                    cv2.line(contact_boundary, pt1, pt2, (0, 0, 255), 3,
-                             cv2.LINE_AA)
+    # if lines is not None and len(lines) > 1:
+    #     lines = lines[:2]
+    #     if np.abs(lines[0][0][1] - lines[1][0][1]) < np.pi / 4.0:
+    #         if np.abs(lines[0][0][1] - lines[1][0][1]) < 1e-2:
+    #             a = -1
+    #             b = -1
+    #         else:
+    #             Theta = np.array(
+    #                 [[math.cos(lines[0][0][1]),
+    #                   math.sin(lines[0][0][1])],
+    #                  [math.cos(lines[1][0][1]),
+    #                   math.sin(lines[1][0][1])]])
+    #             Rho = np.array([[lines[0][0][0]], [lines[1][0][0]]])
+    #             intersection = np.matmul(np.linalg.inv(Theta), Rho)
+    #             a = intersection[0].item()
+    #             b = intersection[1].item()
+    #         if not (a > 0 and a < density.shape[1] and b > 0
+    #                 and b < density.shape[0]):
+    #             for i in range(0, len(lines)):
+    #                 rho = lines[i][0][0]
+    #                 theta = lines[i][0][1]
+    #                 a = math.cos(theta)
+    #                 b = math.sin(theta)
+    #                 x0 = a * rho
+    #                 y0 = b * rho
+    #                 pt1 = (int(x0 + 1000 * (-b)), int(y0 + 1000 * (a)))
+    #                 pt2 = (int(x0 - 1000 * (-b)), int(y0 - 1000 * (a)))
+    #                 cv2.line(contact_boundary, pt1, pt2, (0, 0, 255), 3,
+    #                          cv2.LINE_AA)
     return threshold, contact_boundary

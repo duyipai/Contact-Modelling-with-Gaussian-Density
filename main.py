@@ -9,11 +9,9 @@ from src.getDensity import getFilteredDensity
 from src.tracker import Tracker
 
 if __name__ == "__main__":
-    tracker = Tracker(adaptive=True, cuda=True)
-    cap = cv2.VideoCapture(1)
-    # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 640)
-    # cap.set(cv2.CAP_PROP_FPS, 40)
+    tracker = Tracker(adaptive=True,
+                      cuda=False)  # cuda=True if using opencv cuda
+    cap = cv2.VideoCapture(0)
     frame_num = 0.0
     start_time = time.time()
     capture = False
@@ -22,7 +20,7 @@ if __name__ == "__main__":
         if capture:
             frame_num += 1.0
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            img = img[72:400, 175:480]
+            img = img[72:400, 175:480].copy()
             flow = tracker.track(img)
             density = getFilteredDensity(flow, use_cuda=True)
             # print(density.max(), density.min())
@@ -36,8 +34,7 @@ if __name__ == "__main__":
                        (int(center_of_mass[1]), int(center_of_mass[0])), 5,
                        (255, 0, 0), 2)
             arrows = utils.put_optical_flow_arrows_on_image(
-                np.zeros_like(density),
-                flow.download()[15:-15, 15:-15, :])
+                np.zeros_like(density), flow[15:-15, 15:-15, :])
             cv2.imshow('img', img)
             cv2.imshow('boundary', contact_boundary)
             cv2.imshow('arrows', arrows)

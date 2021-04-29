@@ -130,9 +130,17 @@ funcupy = cp.RawModule(code=func_string).get_function("density")
 def getDensityCuda(flow, sigma, r_max):
     twoSigma2 = cp.float32(2.0 * sigma**2)
     r_max = cp.float32(r_max)
-    flowx, flowy = cv2.cuda.split(flow)
-    flowx = cp.array(CudaArrayInterface(flowx), dtype=cp.float32, copy=True)
-    flowy = cp.array(CudaArrayInterface(flowy), dtype=cp.float32, copy=True)
+    if type(flow).__module__ == np.__name__:
+        flowx = cp.array(flow[:, :, 0], dtype=cp.float32)
+        flowy = cp.array(flow[:, :, 1], dtype=cp.float32)
+    else:
+        flowx, flowy = cv2.cuda.split(flow)
+        flowx = cp.array(CudaArrayInterface(flowx),
+                         dtype=cp.float32,
+                         copy=True)
+        flowy = cp.array(CudaArrayInterface(flowy),
+                         dtype=cp.float32,
+                         copy=True)
     result = cp.zeros((flowx.shape[0], flowx.shape[1]), dtype=cp.float32)
     block_dim = (flowx.shape[1], )
     grid = (flowx.shape[0], )
