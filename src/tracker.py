@@ -30,7 +30,7 @@ class Tracker:
         self.__upper_threshold = upper_threshold  # error greater than threshold will add new reference frame
 
     def track(self, frame):
-        downScaled_size = (frame.shape[1] // 20, frame.shape[0] // 20)
+        downScaled_size = (20, 20)
         if self.cuda:
             frame = cv2.cuda_GpuMat(frame)
         if self.__adaptive:
