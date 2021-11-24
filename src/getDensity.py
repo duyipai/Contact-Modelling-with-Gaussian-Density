@@ -100,7 +100,7 @@ func_string = r"""
     {
         float pi = 3.1415926535897932384626;
         float distance = dx*dx+dy*dy;
-        float result = expf(-distance/twoSigma2);
+        float result = __expf(-distance/twoSigma2);
         result = result/(twoSigma2*pi);
         return result;
     }
@@ -110,13 +110,9 @@ func_string = r"""
         int y = blockIdx.x;
         float dest_x = float(x)+flowX[y*x_size+x];
         float dest_y = float(y) + flowY[y*x_size+x];
-        for(int ind_x=ceilf(dest_x-r_max);ind_x<ceilf(dest_x+r_max); ++ind_x)
-            for(int ind_y=ceilf(dest_y-r_max);ind_y<ceilf(dest_y+r_max); ++ind_y)
+        for(int ind_x=__float2int_ru(fmaxf(dest_x-r_max,0.0));ind_x<__float2int_ru(fminf(dest_x+r_max,__int2float_rd(x_size))); ++ind_x)
+            for(int ind_y=__float2int_ru(fmaxf(dest_y-r_max, 0.0));ind_y<__float2int_ru(fminf(dest_y+r_max, __int2float_rd(y_size))); ++ind_y)
             {
-                if(ind_x >= x_size || ind_x<0 || ind_y >= y_size || ind_y < 0)
-                {
-                    continue;
-                }
                 float dx = float(ind_x)-dest_x;
                 float dy = float(ind_y)-dest_y;
                 atomicAdd(result+ind_y*x_size+ind_x, -gaussian(twoSigma2, dx,dy));
