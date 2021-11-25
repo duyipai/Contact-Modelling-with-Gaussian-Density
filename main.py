@@ -11,7 +11,7 @@ from datetime import datetime
 if __name__ == "__main__":
     tracker = Tracker(adaptive=True,
                       cuda=True)  # cuda=True if using opencv cuda
-    # cap = cv2.VideoCapture(1)
+    # cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
     top, bottom, left, right = (0, 720, 200, 980) # ROI
     gstream_str = 'nvarguscamerasrc sensor-id=0 tnr-mode=2 ee-mode=2 aeantibanding=2 !'\
         ' video/x-raw(memory:NVMM), width=1280, height=720, format=(string)NV12, framerate=(fraction)60/1 !'\
@@ -29,17 +29,17 @@ if __name__ == "__main__":
             # img = cv2.cvtColor(img, cv2.COLOR_YUV2GRAY_I420)
             # img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             # img = img[72:400, 175:480].copy()
-            # img = cv2.resize(img, (img.shape[1]//2,img.shape[0]//2))
-            # flow = tracker.track(img)
-            # density = getFilteredDensity(flow, use_cuda=True)
-            # # print(density.max(), density.min())
+            img = cv2.resize(img, (img.shape[1]//2,img.shape[0]//2))
+            flow = tracker.track(img)
+            density = getFilteredDensity(flow, use_cuda=True)
+            # print(density.max(), density.min())
             # density = (density + 1.0) / 1.0
             # density = (density * 255.0).astype('uint8')
             # threshold, contact_boundary = utils.getContactBoundary(density)
             # density[np.where(density < threshold)] = 0
             # center_of_mass = ndimage.measurements.center_of_mass(density)
             # density = cv2.applyColorMap(density, cv2.COLORMAP_HOT)
-            # cv2.circle(density,
+            # # cv2.circle(density,
             #            (int(center_of_mass[1]), int(center_of_mass[0])), 5,
             #            (255, 0, 0), 2)
             # arrows = utils.put_optical_flow_arrows_on_image(

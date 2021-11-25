@@ -95,27 +95,32 @@ class CudaArrayInterface:
 
 
 func_string = r"""
+    # include"cuda_fp16.h"
     extern "C"{
-    __device__ float gaussian(float twoSigma2, float dx, float dy)
+    __device__ float gaussian(__half twoSigma2, __half dx, __half dy)
     {
-        float pi = 3.1415926535897932384626;
-        float distance = dx*dx+dy*dy;
-        float result = __expf(-distance/twoSigma2);
-        result = result/(twoSigma2*pi);
+        __half pi = 3.1415926535897932384626;
+        __half distance = __hfma(dx,dx,__hmul(dy,dy));
+        __half result = hexp(__hdiv(__hneg(distance),twoSigma2));
+        result = __hdiv(__hdiv(result,twoSigma2),pi);
         return result;
     }
-    __global__ void density(const float *flowX, const float *flowY, float *result, int x_size, int y_size, float twoSigma2, float r_max)
+    __global__ void density(const __half *flowX, const __half *flowY, float *result, int x_size, int y_size, __half twoSigma2, __half r_max)
     {
         int x = threadIdx.x;
         int y = blockIdx.x;
-        float dest_x = float(x)+flowX[y*x_size+x];
-        float dest_y = float(y) + flowY[y*x_size+x];
-        for(int ind_x=__float2int_ru(fmaxf(dest_x-r_max,0.0));ind_x<__float2int_ru(fminf(dest_x+r_max,__int2float_rd(x_size))); ++ind_x)
-            for(int ind_y=__float2int_ru(fmaxf(dest_y-r_max, 0.0));ind_y<__float2int_ru(fminf(dest_y+r_max, __int2float_rd(y_size))); ++ind_y)
+        __half dest_x = __hadd(__half(x),flowX[y*x_size+x]);
+        __half dest_y = __hadd(__half(y), flowY[y*x_size+x]);
+        int x_added = min(__half2int_ru(__hadd(dest_x,r_max)),x_size);
+        int x_sub = max(__half2int_rd(__hsub(dest_x,r_max)),0);
+        int y_added = min(__half2int_ru(__hadd(dest_y,r_max)),y_size);
+        int y_sub = max(__half2int_rd(__hsub(dest_y,r_max)),0);
+        for(int ind_x=x_sub;ind_x<x_added; ++ind_x)
+            for(int ind_y=y_sub;ind_y<y_added; ++ind_y)
             {
-                float dx = float(ind_x)-dest_x;
-                float dy = float(ind_y)-dest_y;
-                atomicAdd(result+ind_y*x_size+ind_x, -gaussian(twoSigma2, dx,dy));
+                __half dx = __hsub(__half(ind_x),dest_x);
+                __half dy = __hsub(__half(ind_y),dest_y);
+                atomicAdd(result+ind_y*x_size+ind_x, __half2float(__hneg(gaussian(twoSigma2, dx,dy))));
             }
     }
     }
@@ -124,22 +129,22 @@ funcupy = cp.RawModule(code=func_string).get_function("density")
 
 
 def getDensityCuda(flow, sigma, r_max):
-    twoSigma2 = cp.float32(2.0 * sigma**2)
-    r_max = cp.float32(r_max)
+    twoSigma2 = cp.float16(2.0 * sigma**2)
+    r_max = cp.float16(r_max)
     if type(flow).__module__ == np.__name__:
-        flowx = cp.array(flow[:, :, 0], dtype=cp.float32)
-        flowy = cp.array(flow[:, :, 1], dtype=cp.float32)
+        flowx = cp.array(flow[:, :, 0], dtype=cp.float16)
+        flowy = cp.array(flow[:, :, 1], dtype=cp.float16)
     else:
         flowx, flowy = cv2.cuda.split(flow)
         flowx = cp.array(CudaArrayInterface(flowx),
-                         dtype=cp.float32,
-                         copy=True)
+                         dtype=cp.float16,
+                         copy=False)
         flowy = cp.array(CudaArrayInterface(flowy),
-                         dtype=cp.float32,
-                         copy=True)
+                         dtype=cp.float16,
+                         copy=False)
     result = cp.zeros((flowx.shape[0], flowx.shape[1]), dtype=cp.float32)
     block_dim = (flowx.shape[1], )
     grid = (flowx.shape[0], )
     funcupy(grid, block_dim, (flowx, flowy, result, cp.int32(
         flowx.shape[1]), cp.int32(flowx.shape[0]), twoSigma2, r_max))
-    return result.get()
+    return cp.asnumpy(result).astype(np.float32)
