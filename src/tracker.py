@@ -9,17 +9,13 @@ class Tracker:
                  lower_threshold=12.0,
                  upper_threshold=18.0):
         self.cuda = cuda
-        if not cuda:
-            # DIS method
+        if cuda:
+            self.__tracking_inst = cv2.cuda.FarnebackOpticalFlow_create()
+        else:
             self.__tracking_inst = cv2.DISOpticalFlow_create(
                 cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
-
-            self.__coarse_tracking_inst = cv2.DISOpticalFlow_create(
-                cv2.DISOpticalFlow_PRESET_ULTRAFAST)
-        else:
-            # #cuda flow method
-            self.__tracking_inst = cv2.cuda.FarnebackOpticalFlow_create()
-            self.__coarse_tracking_inst = self.__tracking_inst
+        self.__coarse_tracking_inst = cv2.DISOpticalFlow_create(
+            cv2.DISOpticalFlow_PRESET_ULTRAFAST)
         self.__fine_base_frame_queue = []
         self.__coarse_base_frame_queue = []
         self.__fine_flow_queue = []
@@ -31,11 +27,8 @@ class Tracker:
 
     def track(self, frame):
         downScaled_size = (20, 20)
-        if self.cuda:
-            frame = cv2.cuda_GpuMat(frame)
         if self.__adaptive:
             if not self.__fine_base_frame_queue:
-                self.__fine_base_frame_queue.append(frame)
                 x = np.linspace(0,
                                 downScaled_size[0] - 1,
                                 downScaled_size[0],
@@ -45,52 +38,44 @@ class Tracker:
                                 downScaled_size[1],
                                 dtype='float32')
                 self.map = np.array(np.meshgrid(x, y)).transpose((1, 2, 0))
+                self.__coarse_base_frame_queue.append(
+                    cv2.resize(frame,
+                               downScaled_size,
+                               interpolation=cv2.INTER_CUBIC))
+                self.__prev_coarse_flow = np.zeros(
+                    (downScaled_size[1], downScaled_size[0], 2))
                 if self.cuda:
-                    cuMat = cv2.cuda_GpuMat()
-                    cuMat.upload(self.map)
-                    self.map = cuMat
-                    self.__coarse_base_frame_queue.append(
-                        cv2.cuda.resize(frame,
-                                        downScaled_size,
-                                        interpolation=cv2.INTER_CUBIC))
+                    frame = cv2.cuda_GpuMat(frame)
                     self.__fine_flow_queue.append(
                         cv2.cuda_GpuMat(frame.size(), cv2.CV_32FC2,
                                         (0.0, 0.0)))
                     self.__prev_fine_flow = cv2.cuda_GpuMat(
                         frame.size(), cv2.CV_32FC2, (0.0, 0.0))
-                    self.__prev_coarse_flow = cv2.cuda_GpuMat(
-                        downScaled_size[1], downScaled_size[0], cv2.CV_32FC2,
-                        (0.0, 0.0))
                 else:
-                    self.__coarse_base_frame_queue.append(
-                        cv2.resize(frame,
-                                   downScaled_size,
-                                   interpolation=cv2.INTER_CUBIC))
                     self.__fine_flow_queue.append(
                         np.zeros((frame.shape[0], frame.shape[1], 2)))
                     self.__prev_fine_flow = np.zeros(
                         (frame.shape[0], frame.shape[1], 2))
-                    self.__prev_coarse_flow = np.zeros(
-                        (downScaled_size[1], downScaled_size[0], 2))
+                self.__fine_base_frame_queue.append(frame)
                 return self.__fine_flow_queue[-1]
             else:
-                if self.cuda:
-                    downScaled_frame = cv2.cuda.resize(
-                        frame, downScaled_size, interpolation=cv2.INTER_CUBIC)
-                else:
-                    downScaled_frame = cv2.resize(
-                        frame, downScaled_size, interpolation=cv2.INTER_CUBIC)
+                downScaled_frame = cv2.resize(frame,
+                                              downScaled_size,
+                                              interpolation=cv2.INTER_CUBIC)
                 self.__checkLoopClosure(downScaled_frame)
                 self.__prev_coarse_flow = self.__coarse_tracking_inst.calc(
                     self.__coarse_base_frame_queue[-1], downScaled_frame,
                     self.__prev_coarse_flow)
-                self.__prev_fine_flow = self.__tracking_inst.calc(
-                    self.__fine_base_frame_queue[-1], frame,
-                    self.__prev_fine_flow)
                 if self.cuda:
+                    self.__prev_fine_flow = self.__tracking_inst.calc(
+                        self.__fine_base_frame_queue[-1],
+                        cv2.cuda_GpuMat(frame), self.__prev_fine_flow)
                     final_flow = cv2.cuda.add(self.__fine_flow_queue[-1],
                                               self.__prev_fine_flow)
                 else:
+                    self.__prev_fine_flow = self.__tracking_inst.calc(
+                        self.__fine_base_frame_queue[-1], frame,
+                        self.__prev_fine_flow)
                     final_flow = self.__fine_flow_queue[
                         -1] + self.__prev_fine_flow
                 error = self.__getForwardBackwardError(
@@ -112,28 +97,14 @@ class Tracker:
             return self.__prev_fine_flow
 
     def __getForwardBackwardError(self, I0, I1, flow):
-        if self.cuda:
-            flow_map = cv2.cuda.add(self.map, flow)
-            map_x, map_y = cv2.cuda.split(flow_map)
-            z = cv2.cuda.remap(I1,
-                               map_x,
-                               map_y,
-                               interpolation=cv2.INTER_CUBIC,
-                               borderMode=cv2.BORDER_REPLICATE)
-            t = I0.clone()
-            t = t.convertTo(rtype=cv2.CV_32FC1, dst=t)
-            z = z.convertTo(rtype=cv2.CV_32FC1, dst=z)
-            rev = cv2.cuda.absSum(cv2.cuda.subtract(
-                t, z))[0] / t.size()[0] / t.size()[1]
-        else:
-            flow_map = self.map + flow
-            z = cv2.remap(I1,
-                          flow_map[:, :, 0],
-                          flow_map[:, :, 1],
-                          interpolation=cv2.INTER_CUBIC,
-                          borderMode=cv2.BORDER_REPLICATE)
-            rev = np.abs(z.astype('float32') - I0.astype('float32'))
-            rev = rev.mean()
+        flow_map = self.map + flow
+        z = cv2.remap(I1,
+                      flow_map[:, :, 0],
+                      flow_map[:, :, 1],
+                      interpolation=cv2.INTER_CUBIC,
+                      borderMode=cv2.BORDER_REPLICATE)
+        rev = np.abs(z.astype('float32') - I0.astype('float32'))
+        rev = rev.mean()
         return rev
 
     def __checkLoopClosure(
